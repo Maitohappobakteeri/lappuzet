@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+pip install wheel
+pip install Werkzeug Flask Flask-JWT-Extended Flask-SQLAlchemy mysql-connector-python alembic Flask-RESTful flasgger
+pip install Flask-Cors jsondiff colorama

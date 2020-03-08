@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+trap 'kill $(jobs -p); docker kill lappuzet-automatic-test;' EXIT
+
+function try {
+  MAX_TRIES=$1
+  N=1
+  DELAY=$2
+  until eval $3
+  do
+    if [[ $N -gt $MAX_TRIES ]]
+    then
+      echo "$(tput setaf 1)$(tput setab 7) ERROR: Tries exceeded for $3 $(tput sgr 0)"
+      exit 1;
+    fi
+    N=$(($N + 1))
+    sleep $DELAY
+  done
+}
+
+# Start database container
+docker run --rm --name lappuzet-automatic-test -e MYSQL_ROOT_PASSWORD=xd -p "3306:3306" -d mysql:latest
+DB_IP="$(docker inspect lappuzet-automatic-test | grep '"IPAddress":' | head -n1 | sed -r 's/.*"IPAddress": "(.*)".*/\1/')"
+echo "$DB_IP"
+sleep 20
+try 6 30 'docker run -it --rm mysql mysql -h'"$DB_IP"' -uroot -pxd -e "select 1"'
+
+# Initialize DB
+docker run -it --rm mysql mysql -h$DB_IP -uroot -pxd -e "create database testi"
+
+source .venv/bin/activate
+echo "LMAO"
+python create-admin.py jenna jenna
+python app.py

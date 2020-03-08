@@ -1,0 +1,10 @@
+# server
+__pycache__
+.venv
+
+# client
+node_modules/
+.cache/
+.parcel-cache/
+client/dist/
+client/.env.*

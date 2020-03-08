@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+trap 'kill $(jobs -p); docker kill lappuzet-automatic-test;' EXIT
+
+function try {
+  MAX_TRIES=$1
+  N=1
+  DELAY=$2
+  until eval $3
+  do
+    if [[ $N -gt $MAX_TRIES ]]
+    then
+      echo "$(tput setaf 1)$(tput setab 7) ERROR: Tries exceeded for $3 $(tput sgr 0)"
+      exit 1;
+    fi
+    N=$(($N + 1))
+    sleep $DELAY
+  done
+}
+
+# Start database container
+docker run --rm --name lappuzet-automatic-test -e MYSQL_ROOT_PASSWORD=xd -d mysql:latest
+DB_IP="$(docker inspect lappuzet-automatic-test | grep '"IPAddress":' | head -n1 | sed -r 's/.*"IPAddress": "(.*)".*/\1/')"
+sleep 10
+try 4 5 'docker run -it --rm mysql mysql -h'"$DB_IP"' -uroot -pxd -e "select 1"'
+
+# Initialize DB
+docker run -it --rm mysql mysql -h$DB_IP -uroot -pxd -e "create database testi"
+
+
+source .venv/bin/activate
+python create-admin.py jenna jenna
+python app.py &
+sleep 2
+
+# Wait for the app to respond
+try 4 5 'curl --header "Content-Type: application/json" --header "Authorization: JWT $JWT_TOKEN" --request GET http://127.0.0.1:5000/version | grep "\"app\": \"lappuzet\""'
+
+TOKENS="$(curl --header "Content-Type: application/json" --request POST --data '{"username":"jenna","password":"jenna","client":1}' http://127.0.0.1:5000/login)"
+ACCESS_TOKEN="$(echo "$TOKENS" | grep accessToken | sed -r 's/.*"accessToken": "(.*)".*/\1/')"
+
+curl --header "Content-Type: application/json" \
+     --header "Authorization: Bearer $ACCESS_TOKEN" \
+     --request GET http://127.0.0.1:5000/user -s | python test/user.py
+
+curl --header "Content-Type: application/json" \
+     --header "Authorization: Bearer $ACCESS_TOKEN" \
+     --data '{"name":"Category"}' \
+     --request POST http://127.0.0.1:5000/notes/category/new -s
+
+curl --header "Content-Type: application/json" \
+     --header "Authorization: Bearer $ACCESS_TOKEN" \
+     --data '{"message":"Moikka! Tämä on testi. . . :>","needsResolve": true}' \
+     --request POST http://127.0.0.1:5000/notes/category/1/new -s | python test/new-note.py
+
+curl --header "Content-Type: application/json" \
+     --header "Authorization: Bearer $ACCESS_TOKEN" \
+     --data '{"name":"Elämänpuu"}' \
+     --request POST http://127.0.0.1:5000/goaltree/new -s | python test/new-goaltree.py
+
+curl --header "Content-Type: application/json" \
+     --header "Authorization: Bearer $ACCESS_TOKEN" \
+     --data '{"title":"Aamiainen"}' \
+     --request POST http://127.0.0.1:5000/goaltree/1/node/new -s
+
+curl --header "Content-Type: application/json" \
+     --header "Authorization: Bearer $ACCESS_TOKEN" \
+     --data '{"title":"Lounas", "parent": 1}' \
+     --request POST http://127.0.0.1:5000/goaltree/1/node/new -s
+
+curl --header "Content-Type: application/json" \
+     --header "Authorization: Bearer $ACCESS_TOKEN" \
+     --data '{"title":"Illallinen", "parent": 2}' \
+     --request POST http://127.0.0.1:5000/goaltree/1/node/new -s
+
+curl --header "Content-Type: application/json" \
+     --header "Authorization: Bearer $ACCESS_TOKEN" \
+     --data '{"title":"Välipala", "parent": 1}' \
+   --request GET http://127.0.0.1:5000/goaltree/1 -s | python test/goaltree-full.py
